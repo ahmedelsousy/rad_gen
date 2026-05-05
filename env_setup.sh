@@ -3,14 +3,23 @@
 # Adds a path to the specified environment variable
 # If the path is already in the environment variable, it will not be added again
 pathadd() {
-    local env_var="$1"
-    local new_path="$2"
+    local env_var=$1
+    local new_path=$2
 
-    if [ -d "$new_path" ] && [[ ":${!env_var}:" != *":$new_path:"* ]]; then
-        export "$env_var=${!env_var:+"${!env_var}:"}$new_path"
+    [ -d "$new_path" ] || return
+
+    if [ -n "$ZSH_VERSION" ]; then
+        current="${(P)env_var}"          # Zsh indirect
+    else
+        current="${!env_var}"            # Bash indirect
     fi
-}
 
+    case ":$current:" in
+        *":$new_path:"*) return ;;
+    esac
+
+    export "$env_var=${current:+$current:}$new_path"
+}
 echo "Activating python environment for RAD-Gen..."
 echo "Make sure this script is running from root of RAD-Gen repo!"
 
@@ -18,7 +27,7 @@ echo "Make sure this script is running from root of RAD-Gen repo!"
 PKG_MGR=${1:-"conda"}
 
 if [ "${PKG_MGR}" != "conda" ] && [ "${PKG_MGR}" != "venv" ]; then
-    echo "usage './env_setup.sh conda' or './py_install.sh venv'"
+    echo "usage 'source env_setup.sh conda' or 'source py_install.sh venv'"
     return 1
 fi
 
@@ -65,30 +74,31 @@ INSTALL=1
 i=0
 while true; do
     # If conda in PATH
-    if [ "${CONDA_EXISTS}" -eq "0" ] && [ "${PKG_MGR}" == "conda" ]; then
+    if [ "${CONDA_EXISTS}" = "0" ] && [ "${PKG_MGR}" = "conda" ]; then
         conda deactivate && conda activate rad-gen-env
         INIT=1
     # If python3 version >= 3.9 and venv module exists
-    elif [ "${PY_VERSION_VALID}" == "0" ] && [ "${VENV_EXISTS}" == "0" ] && [ "${PKG_MGR}" == "venv" ] && [ -f "${RAD_GEN_HOME}/rad-gen-venv/bin/activate" ]; then
+    elif [ "${PY_VERSION_VALID}" = "0" ] && [ "${VENV_EXISTS}" = "0" ] && [ "${PKG_MGR}" = "venv" ] && [ -f "${RAD_GEN_HOME}/rad-gen-venv/bin/activate" ]; then
         source ${RAD_GEN_HOME}/rad-gen-venv/bin/activate
         INIT=1
     else
         INIT=0
     fi
-    if [ "${INIT}" == "1" ]; then
+    if [ "${INIT}" = "1" ]; then
         python3 -m pip show hammer-vlsi > /dev/null
         HAMMER_INSTALLED=$?
     fi
 
     # Checks if env was initialized or if hammer not installed, prompt user to run py_install.sh
-    if [ "${INIT}" == "0" ] || [ "${HAMMER_INSTALLED}" != "0" ]; then
+    if [ "${INIT}" = "0" ] || [ "${HAMMER_INSTALLED}" != "0" ]; then
         # If we're in shell get out
         # conda deactivate
         # $(which deactivate) && deactivate
 
         echo "Python env not initialized"
+        echo "Do you wish to run the python env install script with source py_install.sh ${PKG_MGR}? [Yy/Nn]:"
+        read yn
         while true; do
-            read -p "Do you wish to run the python env install script with ./py_install.sh ${PKG_MGR}? [Yy/Nn]:" yn
             case $yn in
                 [Yy]* ) source ${RAD_GEN_HOME}/py_install.sh ${PKG_MGR}; break;;
                 [Nn]* ) return;;
@@ -96,7 +106,7 @@ while true; do
             esac
         done
     # Sucessful break out condition
-    elif [ "${INIT}" == "1" ] && [ "${HAMMER_INSTALLED}" == "0" ]; then
+    elif [ "${INIT}" = "1" ] && [ "${HAMMER_INSTALLED}" = "0" ]; then
         break
     # Should never be here
     elif [ $i -gt 1 ];
