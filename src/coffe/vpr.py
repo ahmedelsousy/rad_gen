@@ -606,6 +606,16 @@ def print_vpr_file_flut_hard(vpr_file, fpga_inst):
 
     logic_tile = root.xpath("//device/area")[0]
     boxes = root.xpath("//switchlist/switch")
+    lut_delay_matrices = root.xpath("//delay_matrix") 
+
+    lut_input_names = list(fpga_inst.lut_inputs.keys())
+    lut_input_names.sort()
+    lut_delays = []
+    for input_name in lut_input_names:
+        lut_input = fpga_inst.lut_inputs[input_name][0] #TODO add multi ckt support
+        driver_delay = max(lut_input.driver.delay, lut_input.not_driver.delay)
+        path_delay = lut_input.delay
+        lut_delays.append(driver_delay + path_delay)
 
     logic_tile.set("grid_logic_tile_area", str(grid_logic_tile_area))
 
@@ -624,6 +634,9 @@ def print_vpr_file_flut_hard(vpr_file, fpga_inst):
                 box.set("mux_trans_size", str(fpga_inst.area_dict["ipin_mux_trans_size"]/fpga_inst.specs.min_width_tran_area))
                 box.set("buf_size", str(fpga_inst.area_dict["cb_buf_size"]/fpga_inst.specs.min_width_tran_area))
                 break
+    for delay in lut_delay_matrices:
+        if "lut" in delay.get("in_port"):
+            delay.text = "\n" + "".join(f"{lut}\n" for lut in lut_delays)
 
     tree.write("patch.xml", pretty_print=True)
 def print_vpr_file(fpga_inst, arch_folder, enable_bram_module):
