@@ -1005,9 +1005,7 @@ class FPGA:
                     vpr_name = vpr_name,
                 )
                 self.sb_muxes.append(sb_mux)
-<<<<<<< HEAD
             # Build per-wire load freq dicts from RRG mux_stats fanout info.
-=======
             self.sb_mux = c_ds.Block(
                 ckt_defs = self.sb_muxes,
                 total_num_per_tile = sum([sb_mux.num_per_tile for sb_mux in self.sb_muxes])
@@ -1073,7 +1071,6 @@ class FPGA:
             # Convert fanout information from RRG into a Dict[c_ds.GenRoutingWire, Dict[sb_mux_lib.SwitchBlockMux, Dict[str, int] ] ]
             # The inner most dict will have keys "freq" and "ISBD"
 
->>>>>>> 81deaa5 (FEAT: Added CB and SB delay and area patching logic)
             # TODO implement "ISBD" type metrics from parsing RR_graph data
             sb_mux: sb_mux_lib.SwitchBlockMux
             for sb_mux in self.sb_muxes:

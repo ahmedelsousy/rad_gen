@@ -2,6 +2,47 @@ import sys
 import os
 from lxml import etree
 
+
+def _first_or_none(value):
+    if isinstance(value, list):
+        return value[0] if value else None
+    return value
+
+
+def _get_ckt_delay(ckt, delay_dict):
+    if ckt is None:
+        return None
+    sp_name = None
+    if hasattr(ckt, "sp_name") and ckt.sp_name:
+        sp_name = ckt.sp_name
+    elif hasattr(ckt, "name"):
+        sp_name = ckt.name
+    if delay_dict and sp_name in delay_dict:
+        return delay_dict[sp_name]
+    if hasattr(ckt, "delay"):
+        return ckt.delay
+    return None
+
+
+def _set_delay_constant(delay_node, delay_value):
+    if delay_node is None or delay_value is None:
+        return
+    delay_node.set("max", str(delay_value))
+    if delay_node.get("min") is not None:
+        delay_node.set("min", str(delay_value))
+
+
+def _lut_delay_vector(lut_input_delays, count):
+    if count <= 0:
+        return []
+    ordered_names = sorted(lut_input_delays.keys())
+    ordered_delays = [lut_input_delays[name] for name in ordered_names]
+    if not ordered_delays:
+        return []
+    if len(ordered_delays) < count:
+        ordered_delays += [ordered_delays[-1]] * (count - len(ordered_delays))
+    return ordered_delays[:count]
+
 def print_vpr_file_memory(vpr_file, fpga_inst):
 
     # get delay values
@@ -586,7 +627,10 @@ def print_vpr_file_memory(vpr_file, fpga_inst):
 
 
 
-def print_vpr_file_flut_hard(vpr_file, fpga_inst):
+def print_vpr_file_flut_hard(vpr_file, fpga_inst, input_xml="arch.xml", output_xml="patch.xml", delay_dict=None):
+
+    if delay_dict is None and hasattr(fpga_inst, "delay_dict"):
+        delay_dict = fpga_inst.delay_dict
 
     # get archetecture parameters
     Rfb = fpga_inst.specs.Rfb
@@ -601,21 +645,65 @@ def print_vpr_file_flut_hard(vpr_file, fpga_inst):
     # get areas
     grid_logic_tile_area = fpga_inst.area_dict["logic_cluster"]/fpga_inst.specs.min_width_tran_area
 
-    tree = etree.parse("arch.xml")
+    tree = etree.parse(input_xml)
     root = tree.getroot()
 
     logic_tile = root.xpath("//device/area")[0]
     boxes = root.xpath("//switchlist/switch")
-    lut_delay_matrices = root.xpath("//delay_matrix") 
+    lut_delay_matrices = root.xpath("//delay_matrix")
 
     lut_input_names = list(fpga_inst.lut_inputs.keys())
     lut_input_names.sort()
-    lut_delays = []
+    lut_input_delays = {}
     for input_name in lut_input_names:
-        lut_input = fpga_inst.lut_inputs[input_name][0] #TODO add multi ckt support
+        lut_delay_key = f"lut_{input_name}"
+        if delay_dict and lut_delay_key in delay_dict:
+            lut_input_delays[input_name] = delay_dict[lut_delay_key]
+            continue
+        lut_input = fpga_inst.lut_inputs[input_name][0]  # TODO add multi ckt support
         driver_delay = max(lut_input.driver.delay, lut_input.not_driver.delay)
         path_delay = lut_input.delay
-        lut_delays.append(driver_delay + path_delay)
+        lut_input_delays[input_name] = driver_delay + path_delay
+
+    lut_mode_vectors = {}
+    for lut_name, lut_size in (("lut6", 6), ("lut5", 5), ("lut4", 4)):
+        if delay_dict and lut_name in delay_dict:
+            lut_mode_vectors[lut_name] = [delay_dict[lut_name]] * lut_size
+        else:
+            lut_mode_vectors[lut_name] = _lut_delay_vector(lut_input_delays, lut_size)
+
+    logic_cluster = getattr(fpga_inst, "logic_cluster", None)
+    local_mux_ckt = _first_or_none(getattr(fpga_inst, "local_muxes", None))
+    if local_mux_ckt is None and logic_cluster is not None:
+        local_mux_ckt = getattr(logic_cluster, "local_mux", None)
+    local_feedback_ckt = _first_or_none(getattr(fpga_inst, "local_ble_outputs", None))
+    if local_feedback_ckt is None and logic_cluster is not None and hasattr(logic_cluster, "ble"):
+        local_feedback_ckt = getattr(logic_cluster.ble, "local_output", None)
+    general_output_ckt = _first_or_none(getattr(fpga_inst, "general_ble_outputs", None))
+    if general_output_ckt is None and logic_cluster is not None and hasattr(logic_cluster, "ble"):
+        general_output_ckt = getattr(logic_cluster.ble, "general_output", None)
+
+    local_mux_delay = _get_ckt_delay(local_mux_ckt, delay_dict)
+    local_feedback_delay = _get_ckt_delay(local_feedback_ckt, delay_dict)
+    logic_block_output_delay = _get_ckt_delay(general_output_ckt, delay_dict)
+
+    carry_chain_delay = None
+    if getattr(fpga_inst.specs, "enable_carry_chain", False):
+        carry_inter = _first_or_none(getattr(fpga_inst, "carry_chain_inter_clusters", None))
+        carry_per = _first_or_none(getattr(fpga_inst, "carry_chain_periphs", None))
+        carry_mux = _first_or_none(getattr(fpga_inst, "carry_chain_muxes", None))
+        carry_chain = _first_or_none(getattr(fpga_inst, "carry_chains", None))
+        carry_parts = [
+            _get_ckt_delay(carry_inter, delay_dict),
+            _get_ckt_delay(carry_per, delay_dict),
+            _get_ckt_delay(carry_mux, delay_dict),
+        ]
+        carry_parts = [delay for delay in carry_parts if delay is not None]
+        if not carry_parts and carry_chain is not None:
+            carry_parts = [_get_ckt_delay(carry_chain, delay_dict)]
+        carry_parts = [delay for delay in carry_parts if delay is not None]
+        if carry_parts:
+            carry_chain_delay = sum(carry_parts)
 
     logic_tile.set("grid_logic_tile_area", str(grid_logic_tile_area))
 
@@ -635,10 +723,46 @@ def print_vpr_file_flut_hard(vpr_file, fpga_inst):
                 box.set("buf_size", str(fpga_inst.area_dict["cb_buf_size"]/fpga_inst.specs.min_width_tran_area))
                 break
     for delay in lut_delay_matrices:
-        if "lut" in delay.get("in_port"):
-            delay.text = "\n" + "".join(f"{lut}\n" for lut in lut_delays)
+        in_port = delay.get("in_port") or ""
+        for lut_name, lut_values in lut_mode_vectors.items():
+            if not lut_values:
+                continue
+            if in_port.startswith(f"{lut_name}."):
+                delay.text = "\n" + "".join(f"{lut}\n" for lut in lut_values)
+                break
 
-    tree.write("patch.xml", pretty_print=True)
+    if local_mux_delay is not None or local_feedback_delay is not None:
+        for complete in root.xpath("//interconnect/complete"):
+            for delay_node in complete.xpath("./delay_constant"):
+                in_port = delay_node.get("in_port") or ""
+                out_port = delay_node.get("out_port") or ""
+                if "clb.I" in in_port and ".in" in out_port:
+                    _set_delay_constant(delay_node, local_mux_delay)
+                elif ".out" in in_port and ".in" in out_port:
+                    _set_delay_constant(delay_node, local_feedback_delay)
+
+    if logic_block_output_delay is not None:
+        for mux in root.xpath("//mux[contains(@input, 'ff.Q')]"):
+            for delay_node in mux.xpath("./delay_constant"):
+                _set_delay_constant(delay_node, logic_block_output_delay)
+
+    if carry_chain_delay is not None:
+        for direct in root.xpath("//direct[@name='carry_in']"):
+            delay_nodes = direct.xpath("./delay_constant")
+            if delay_nodes:
+                for delay_node in delay_nodes:
+                    _set_delay_constant(delay_node, carry_chain_delay)
+            else:
+                in_port = direct.get("input")
+                out_port = direct.get("output")
+                if in_port and out_port:
+                    new_delay = etree.SubElement(direct, "delay_constant")
+                    new_delay.set("max", str(carry_chain_delay))
+                    new_delay.set("min", str(carry_chain_delay))
+                    new_delay.set("in_port", in_port)
+                    new_delay.set("out_port", out_port)
+
+    tree.write(output_xml, pretty_print=True)
 def print_vpr_file(fpga_inst, arch_folder, enable_bram_module):
 
     vpr_file = open(arch_folder + "/vpr_arch.xml", 'w')
