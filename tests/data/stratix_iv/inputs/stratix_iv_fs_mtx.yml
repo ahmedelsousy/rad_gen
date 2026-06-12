@@ -42,11 +42,16 @@ fpga_arch_params:
     # L16 -> L4
     - src: 1
       dst: 0
-      Fs: 3
+      Fs: 1
     # L16 -> L16
     - src: 1
       dst: 1
       Fs: 3
+
+  cb_muxes:
+    - srcs:
+        L4: 0.055
+        L16: 0.0
 
   # Number of BLE outputs to general routing
   Or : 2
@@ -90,9 +95,13 @@ fpga_arch_params:
   model_library : 45NM_FINFET_HP
 
   metal :
+  # All wires except the general routing wires are implemented in this layer.
+  # Free45 M1
   - [0.00492, 0.00021]
-  - [0.00079, 0.00021]
-  - [0.00079, 0.00021]
+  # General routing wires will be implemented in this layer 
+  # Free45 M4-M6
+  - [0.00079,   0.00021] # L4 metal layer
+  - [0.00079,   0.00021] # L16 metal layer
 
   gen_routing_metal_pitch : 280
   gen_routing_metal_layers : 1
