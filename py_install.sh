@@ -82,8 +82,8 @@ else
     return 1
 fi
 
-if [ ! -d $VTR_HOME/build ] && ["$ENV_INIT" = "1"]; then
-	cd $VTR_HOME
+if [ ! -d $VTR_ROOT/build ] && ["$ENV_INIT" = "1"]; then
+	cd $VTR_ROOT
 	git submodule update --init --recursive .
 	pip install -r requirements.txt
 	cd - > /dev/null

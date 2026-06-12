@@ -35,7 +35,7 @@ fi
 export RAD_GEN_HOME=$PWD
 export THIRD_PARTY_HOME=$RAD_GEN_HOME/third_party
 export HAMMER_HOME=$THIRD_PARTY_HOME/hammer
-export VTR_HOME=$THIRD_PARTY_HOME/vtr
+export VTR_ROOT=$THIRD_PARTY_HOME/vtr
 
 pathadd "PYTHONPATH" "$RAD_GEN_HOME"
 
@@ -118,13 +118,13 @@ while true; do
     i=$((i+1))
 done
 
-if [ ! -d $VTR_HOME/build ]; then
+if [ ! -d $VTR_ROOT/build ]; then
 	echo "Compiling VTR..."
-	cd $VTR_HOME
+	cd $VTR_ROOT
 	make 
 	cd $RAD_GEN_HOME
 fi
-pathadd "PATH" $VTR_HOME/vpr
+pathadd "PATH" $VTR_ROOT/vpr
 
 # Copy the newly set env to pytest.ini
 ${RAD_GEN_HOME}/scripts/cur_env_to_pytest.sh
